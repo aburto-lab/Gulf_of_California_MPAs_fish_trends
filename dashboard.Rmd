@@ -1,0 +1,795 @@
+---
+title: "Monitoreo de los Arrecifes Rocosos del Golfo de California"
+lang: es
+output: 
+  flexdashboard::flex_dashboard:
+    orientation: rows
+    vertical_layout: fill
+runtime: shiny
+---
+
+```{r setup, include=FALSE}
+library(flexdashboard)
+library(shiny)
+library(dplyr)
+library(ggplot2)
+library(DT)
+library(jsonlite)
+library(tidyverse)
+library(ggridges)
+library(mgcv)
+
+# Sample dataset structure
+# Replace with your actual dataset
+data <- read_rds("data/cleaned_data.RDS")
+```
+
+
+
+Overview
+=======================================================================
+
+Sidebar {.sidebar}
+-----------------------------------------------------------------------
+### Overview
+```{r}
+HTML('<div style="text-align: justify;">
+
+Este tablero proporciona una visión general del monitoreo de los arrecifes rocosos. Puede explorar datos por región, tipo de especie y más. Utilice las pestañas para navegar por las diferentes secciones del tablero.
+
+En la pestaña "Resumen", puede ver las tendencias generales en densidad promedio, biomasa y tamaño.
+En la pestaña "Tendencias Regionales", puede explorar datos para regiones específicas.
+En la pestaña "Tendencias por Especies", puede seleccionar una especie y ver tendencias y datos detallados para esa especie.
+
+</div>')
+
+```
+
+
+```{r}
+# Resize the logo and center it
+HTML('<div style="text-align: center;">
+<img src="www/logoSIO.png" alt="Logo" style="width:200px; height:auto;">
+</div>')
+```
+
+
+```{r}
+checkboxInput("group_by_region", "Mostrar tendencias por región", value = FALSE)
+```
+
+Column {data-height=100}
+-----------------------------------------------------------------------
+### Tendencias de densidad
+
+```{r}
+output$main_density_plot <- renderPlot({
+  if (input$group_by_region) {
+       
+       tomodel <- data %>% 
+            group_by(year, region, reef, depth2, transect) %>% 
+            summarise(density = sum(density)) %>% 
+            group_by(year, region) %>%
+            summarize(avg_density = mean(density, na.rm = TRUE), 
+                      se_density = sd(density, na.rm = TRUE)/sqrt(n()))
+       
+       
+       # Fit a GAM model with Gamma family for each region
+       gam_model <- gam(avg_density ~ s(year, by = region) + region, family = Gamma(link = "log"), data = tomodel)
+       
+       
+       # Predict using the model
+       tomodel$Predicted_density <- predict(gam_model, newdata = tomodel, type = "response", se.fit = TRUE)$fit
+       tomodel$se.fit <- predict(gam_model, newdata = tomodel, type = "response", se.fit = TRUE)$se.fit
+       
+       
+      ggplot(tomodel, 
+             aes(x = year, y = avg_density, fill = region, col = region)) +
+           geom_line(aes(y=Predicted_density)) +
+          geom_point(alpha = .3) +
+          geom_ribbon(aes(ymin = Predicted_density - 2 * se.fit, ymax = Predicted_density + 2 * se.fit), alpha = 0.2) +
+          geom_errorbar(aes(ymin = avg_density - se_density, ymax = avg_density + se_density), width = 0, alpha = .3) +
+      labs(x = "Año", y = "Densidad (ind/m cuadrado) Promedio", col = "", fill = "") +
+      theme_bw()
+       
+  } else {
+    overall_data <- data %>%
+      group_by(year, region, reef, depth2, transect) %>% 
+      summarise(density = sum(density), 
+                biomass = sum(biomass), 
+                size = mean(size)) %>% 
+      group_by(year) %>%
+      summarize(avg_density = mean(density, na.rm = TRUE), 
+                se_density = sd(density, na.rm = TRUE)/sqrt(n()))
+    ggplot(overall_data, aes(x = year, y = avg_density)) +
+      geom_point(color = "black") +
+      geom_smooth(color = "black", fill = "black") +
+      geom_errorbar(aes(ymin = avg_density - se_density, ymax = avg_density + se_density), width = 0) +
+     labs(x = "Año", y = "Densidad (ind/m cuadrado) Promedio", col = "", fill = "") +
+      theme_bw()
+  }
+})
+plotOutput("main_density_plot")
+
+
+```
+
+
+### Tendencias de biomasa
+
+```{r}
+output$main_biomass_plot <- renderPlot({
+  if (input$group_by_region) {
+     
+       tomodel <- data %>% 
+            group_by(year, region, reef, depth2, transect) %>% 
+            summarise(biomass = sum(biomass)) %>% 
+            group_by(year, region) %>%
+            summarize(avg_biomass = mean(biomass, na.rm = TRUE), 
+                      se_biomass = sd(biomass, na.rm = TRUE)/sqrt(n()))
+       
+       
+       # Fit a GAM model with Gamma family for each region
+       gam_model <- gam(avg_biomass ~ s(year, by = region) + region, family = Gamma(link = "log"), data = tomodel)
+       
+       
+       # Predict using the model
+       tomodel$Predicted_biomass <- predict(gam_model, newdata = tomodel, type = "response", se.fit = TRUE)$fit
+       tomodel$se.fit <- predict(gam_model, newdata = tomodel, type = "response", se.fit = TRUE)$se.fit
+       
+       
+      ggplot(tomodel, 
+             aes(x = year, y = avg_biomass, fill = region, col = region)) +
+           geom_line(aes(y=Predicted_biomass)) +
+          geom_point(alpha = .3) +
+          geom_ribbon(aes(ymin = Predicted_biomass - 2 * se.fit, ymax = Predicted_biomass + 2 * se.fit), alpha = 0.2) +
+          geom_errorbar(aes(ymin = avg_biomass - se_biomass, ymax = avg_biomass + se_biomass), width = 0, alpha = .3) +
+      labs(x = "Año", y = "Biomasa promedio (ton/ha)", col = "", fill = "") +
+      theme_bw()
+  } else {
+    overall_data <- data %>%
+      group_by(year, region, reef, depth2, transect) %>% 
+      summarise(biomass = sum(biomass), 
+                size = mean(size)) %>% 
+      group_by(year) %>%
+      summarize(avg_biomass = mean(biomass, na.rm = TRUE), 
+                se_biomass = sd(biomass, na.rm = TRUE)/sqrt(n()))
+    ggplot(overall_data, aes(x = year, y = avg_biomass)) +
+      geom_point(color = "black") +
+        geom_smooth(color = "black", fill = "black") +
+      geom_errorbar(aes(ymin = avg_biomass - se_biomass, ymax = avg_biomass + se_biomass), width = 0) +
+      labs(x = "Año", y = "Biomasa promedio (ton/ha)", col = "", fill = "") +
+      theme_bw()
+  }
+})
+
+plotOutput("main_biomass_plot")
+
+
+```
+
+### Tendencias de talla
+
+```{r}
+output$main_size_plot <- renderPlot({
+  if (input$group_by_region) {
+     tomodel <- data %>% 
+            group_by(year, region, reef, depth2, transect) %>% 
+            summarise(size = mean(size)) %>% 
+            group_by(year, region) %>%
+            summarize(avg_size = mean(size, na.rm = TRUE), 
+                      se_size = sd(size, na.rm = TRUE)/sqrt(n()))
+       
+       
+       # Fit a GAM model with Gamma family for each region
+       gam_model <- gam(avg_size ~ s(year, by = region) + region, family = Gamma(link = "log"), data = tomodel)
+       
+       
+       # Predict using the model
+       tomodel$Predicted_size <- predict(gam_model, newdata = tomodel, type = "response", se.fit = TRUE)$fit
+       tomodel$se.fit <- predict(gam_model, newdata = tomodel, type = "response", se.fit = TRUE)$se.fit
+       
+       
+      ggplot(tomodel, 
+             aes(x = year, y = avg_size, fill = region, col = region)) +
+           geom_line(aes(y=Predicted_size)) +
+          geom_point(alpha = .3) +
+          geom_ribbon(aes(ymin = Predicted_size - 2 * se.fit, ymax = Predicted_size + 2 * se.fit), alpha = 0.2) +
+          geom_errorbar(aes(ymin = avg_size - se_size, ymax = avg_size + se_size), width = 0, alpha = .3) +
+      labs(x = "Año", y = "Talla promedio (cm)", col = "", fill = "") +
+      theme_bw()
+  } else {
+    overall_data <- data %>%
+      group_by(year, region, reef, depth2, transect) %>% 
+      summarise(size = mean(size)) %>% 
+      group_by(year) %>%
+      summarize(avg_size = mean(size, na.rm = TRUE), 
+                se_size = sd(size, na.rm = TRUE)/sqrt(n()))
+    ggplot(overall_data, aes(x = year, y = avg_size)) +
+      geom_point(color = "black") +
+      geom_smooth(color = "black", fill = "black") +
+      geom_errorbar(aes(ymin = avg_size - se_size, ymax = avg_size + se_size), width = 0) +
+      labs(x = "Año", y = "Talla promedio (cm)", col = "", fill = "") +
+      theme_bw()
+  }
+})
+
+plotOutput("main_size_plot")
+
+```
+
+
+Column {data-height=100}
+-----------------------------------------------------------------------
+
+### Tendencias de densidad
+
+```{r}
+output$density_boxplot <- renderPlot({
+  if (input$group_by_region) {
+        
+resample_mean <- function(df, n = 1000) {
+     replicate(n, {
+          sampled <- df[sample(nrow(df), replace = TRUE), ]
+          mean((sampled$density), na.rm = TRUE)
+     })
+}
+
+
+data %>% 
+     filter(year > 2008) %>% 
+     group_by(year, region, reef, depth2, transect) %>% 
+     summarise(density = sum(density)) %>% 
+     group_by(region) %>%
+     nest() %>%
+     mutate(
+          ResampledMeans = map(data, ~resample_mean(.x)),
+          Median = map_dbl(ResampledMeans, median)
+     ) %>%
+     select(region, ResampledMeans, Median) %>% 
+     unnest(ResampledMeans) %>%
+     rename(grouping_index = ResampledMeans) %>%
+     select(-Median) %>% 
+     ggplot(aes(x = grouping_index, fill = region)) +
+     geom_density(alpha = 0.5, trim = T) + # Density plots for each group
+     labs(x = "Distribución de los promedios de densidad", y = "Frequencia de valores") +
+     scale_fill_discrete(name = "Group") +
+     scale_color_discrete(name = "Group") +
+     xlim(0.5, 1) +
+     #scale_x_continuous(breaks = seq(0, 250, by=5)) +
+     theme_bw() +
+     theme(legend.position = "bottom", 
+           axis.ticks.y = element_blank(), 
+           axis.title.y = element_blank(), 
+           axis.text.y = element_blank(), 
+           panel.grid = element_blank(), 
+           axis.text.x = element_text(angle = 90, vjust = .5))
+    
+    
+  } else {
+    resample_mean <- function(df, n = 1000) {
+     replicate(n, {
+          sampled <- df[sample(nrow(df), replace = TRUE), ]
+          mean((sampled$density), na.rm = TRUE)
+     })
+}
+
+
+data %>% 
+     filter(year > 2008) %>% 
+     group_by(year, region, reef, depth2, transect) %>% 
+     summarise(density = sum(density)) %>% 
+     group_by(region) %>%
+     nest() %>%
+     mutate(
+          ResampledMeans = map(data, ~resample_mean(.x)),
+          Median = map_dbl(ResampledMeans, median)
+     ) %>%
+     select(region, ResampledMeans, Median) %>% 
+     unnest(ResampledMeans) %>%
+     rename(grouping_index = ResampledMeans) %>%
+     select(-Median) %>% 
+     ggplot(aes(x = grouping_index, fill = region)) +
+     geom_density(alpha = 0.5, trim = T) + # Density plots for each group
+     labs(x = "Distribución de los promedios de densidad", y = "Frequencia de valores") +
+     scale_fill_discrete(name = "Group") +
+     scale_color_discrete(name = "Group") +
+     xlim(0.5, 1) +
+     #scale_x_continuous(breaks = seq(0, 250, by=5)) +
+     theme_bw() +
+     theme(legend.position = "bottom", 
+           axis.ticks.y = element_blank(), 
+           axis.title.y = element_blank(), 
+           axis.text.y = element_blank(), 
+           panel.grid = element_blank(), 
+           axis.text.x = element_text(angle = 90, vjust = .5))
+    
+  }
+})
+plotOutput("density_boxplot")
+
+```
+
+### Tendencias de biomasa
+
+```{r}
+output$biomass_boxplot <- renderPlot({
+  if (input$group_by_region) {
+      
+resample_mean <- function(df, n = 1000) {
+     replicate(n, {
+          sampled <- df[sample(nrow(df), replace = TRUE), ]
+          mean((sampled$biomass), na.rm = TRUE)
+     })
+}
+
+
+data %>% 
+     filter(year > 2008) %>% 
+     group_by(year, region, reef, depth2, transect) %>% 
+     summarise(biomass = sum(biomass)) %>% 
+     group_by(region) %>%
+     nest() %>%
+     mutate(
+          ResampledMeans = map(data, ~resample_mean(.x)),
+          Median = map_dbl(ResampledMeans, median)
+     ) %>%
+     select(region, ResampledMeans, Median) %>% 
+     unnest(ResampledMeans) %>%
+     rename(grouping_index = ResampledMeans) %>%
+     select(-Median) %>% 
+     ggplot(aes(x = grouping_index, fill = region)) +
+     geom_density(alpha = 0.5, trim = T) + # Density plots for each group
+     labs(x = "Distribución de los promedios de biomasa", y = "Frequencia de valores") +
+     scale_fill_discrete(name = "Group") +
+     scale_color_discrete(name = "Group") +
+     #scale_x_continuous(breaks = seq(0, 250, by=5)) +
+     theme_bw() +
+     theme(legend.position = "bottom", 
+           axis.ticks.y = element_blank(), 
+           axis.title.y = element_blank(), 
+           axis.text.y = element_blank(), 
+           panel.grid = element_blank(), 
+           axis.text.x = element_text(angle = 90, vjust = .5))
+    
+  } else {
+        
+resample_mean <- function(df, n = 1000) {
+     replicate(n, {
+          sampled <- df[sample(nrow(df), replace = TRUE), ]
+          mean((sampled$biomass), na.rm = TRUE)
+     })
+}
+
+
+data %>% 
+     filter(year > 2008) %>% 
+     group_by(year, region, reef, depth2, transect) %>% 
+     summarise(biomass = sum(biomass)) %>% 
+     group_by(region) %>%
+     nest() %>%
+     mutate(
+          ResampledMeans = map(data, ~resample_mean(.x)),
+          Median = map_dbl(ResampledMeans, median)
+     ) %>%
+     select(region, ResampledMeans, Median) %>% 
+     unnest(ResampledMeans) %>%
+     rename(grouping_index = ResampledMeans) %>%
+     select(-Median) %>% 
+     ggplot(aes(x = grouping_index, fill = region)) +
+     geom_density(alpha = 0.5, trim = T) + # Density plots for each group
+     labs(x = "Distribución de los promedios de biomasa", y = "Frequencia de valores") +
+     scale_fill_discrete(name = "Group") +
+     scale_color_discrete(name = "Group") +
+     #scale_x_continuous(breaks = seq(0, 250, by=5)) +
+     theme_bw() +
+     theme(legend.position = "bottom", 
+           axis.ticks.y = element_blank(), 
+           axis.title.y = element_blank(), 
+           axis.text.y = element_blank(), 
+           panel.grid = element_blank(), 
+           axis.text.x = element_text(angle = 90, vjust = .5))
+    
+  }
+})
+plotOutput("biomass_boxplot")
+```
+
+### Tendencias de talla
+
+```{r}
+output$size_boxplot <- renderPlot({
+  if (input$group_by_region) {
+         
+resample_mean <- function(df, n = 1000) {
+     replicate(n, {
+          sampled <- df[sample(nrow(df), replace = TRUE), ]
+          mean((sampled$size), na.rm = TRUE)
+     })
+}
+
+
+data %>% 
+     filter(year > 2008) %>% 
+     group_by(year, region, reef, depth2, transect) %>% 
+     summarise(size = mean(size)) %>% 
+     group_by(region) %>%
+     nest() %>%
+     mutate(
+          ResampledMeans = map(data, ~resample_mean(.x)),
+          Median = map_dbl(ResampledMeans, median)
+     ) %>%
+     select(region, ResampledMeans, Median) %>% 
+     unnest(ResampledMeans) %>%
+     rename(grouping_index = ResampledMeans) %>%
+     select(-Median) %>% 
+     ggplot(aes(x = grouping_index, fill = region)) +
+     geom_density(alpha = 0.5, trim = T) + # Density plots for each group
+     labs(x = "Distribución de los promedios de talla", y = "Frequencia de valores") +
+     scale_fill_discrete(name = "Group") +
+     scale_color_discrete(name = "Group") +
+     #scale_x_continuous(breaks = seq(0, 250, by=5)) +
+     theme_bw() +
+     theme(legend.position = "bottom", 
+           axis.ticks.y = element_blank(), 
+           axis.title.y = element_blank(), 
+           axis.text.y = element_blank(), 
+           panel.grid = element_blank(), 
+           axis.text.x = element_text(angle = 90, vjust = .5))
+    
+  } else {
+            
+resample_mean <- function(df, n = 1000) {
+     replicate(n, {
+          sampled <- df[sample(nrow(df), replace = TRUE), ]
+          mean((sampled$size), na.rm = TRUE)
+     })
+}
+
+
+data %>% 
+     filter(year > 2008) %>% 
+     group_by(year, region, reef, depth2, transect) %>% 
+     summarise(size = mean(size)) %>% 
+     group_by(region) %>%
+     nest() %>%
+     mutate(
+          ResampledMeans = map(data, ~resample_mean(.x)),
+          Median = map_dbl(ResampledMeans, median)
+     ) %>%
+     select(region, ResampledMeans, Median) %>% 
+     unnest(ResampledMeans) %>%
+     rename(grouping_index = ResampledMeans) %>%
+     select(-Median) %>% 
+     ggplot(aes(x = grouping_index, fill = region)) +
+     geom_density(alpha = 0.5, trim = T) + # Density plots for each group
+     labs(x = "Distribución de los promedios de talla", y = "Frequencia de valores") +
+     scale_fill_discrete(name = "Group") +
+     scale_color_discrete(name = "Group") +
+     #scale_x_continuous(breaks = seq(0, 250, by=5)) +
+     theme_bw() +
+     theme(legend.position = "bottom", 
+           axis.ticks.y = element_blank(), 
+           axis.title.y = element_blank(), 
+           axis.text.y = element_blank(), 
+           panel.grid = element_blank(), 
+           axis.text.x = element_text(angle = 90, vjust = .5))
+    
+  }
+})
+plotOutput("size_boxplot")
+```
+
+
+
+
+
+Tendencias Regionales
+=======================================================================
+
+Sidebar {.sidebar}
+-----------------------------------------------------------------------
+### Tendencias regionales
+
+```{r}
+selectInput("regional_region", "Select Region:", choices = unique(data$region), selected = unique(data$region)[1])
+checkboxInput("show_commercial", "Show commercial species", value = FALSE)
+```
+
+Column {data-height=100}
+-----------------------------------------------------------------------
+### Tendencias de densidad
+
+```{r}
+output$density_plot <- renderPlot({
+  region_data <- data %>%
+    filter(region == input$regional_region)
+
+  if (input$show_commercial) {
+    region_data <- region_data %>%
+         group_by(year, reef, commercial, depth2, transect) %>% 
+         summarise(density = sum(density), 
+                   biomass = sum(biomass), 
+                   size = mean(size)) %>% 
+      group_by(year, commercial) %>%
+      summarize(avg_density = mean(density, na.rm = TRUE), 
+                se_density = sd(density, na.rm = TRUE)/sqrt(n()))
+    ggplot(region_data, aes(x = year, y = avg_density, color = commercial, fill = commercial)) +
+      geom_point() +
+         geom_smooth() +
+      geom_errorbar(aes(ymin = avg_density - se_density, ymax = avg_density + se_density), width = 0) +
+      labs(x = "Año", y = "Densidad promedio (ind/m cúadrado)", col = "", fill = "") +
+      scale_color_manual(values = c("Commercial" = "blue", "No commercial" = "red")) +
+      scale_fill_manual(values = c("Commercial" = "blue", "No commercial" = "red")) +
+      ylim(0, 2) +
+      theme_bw() +
+         theme(legend.position = "bottom")
+  } else {
+    region_data <- region_data %>%
+         group_by(year, reef, depth2, transect) %>% 
+         summarise(density = sum(density), 
+                   biomass = sum(biomass), 
+                   size = mean(size)) %>% 
+      group_by(year) %>%
+      summarize(avg_density = mean(density, na.rm = TRUE), 
+                se_density = sd(density, na.rm = TRUE)/sqrt(n()))
+    ggplot(region_data, aes(x = year, y = avg_density)) +
+      geom_point(color = "black") +
+         geom_smooth(color = "black", fill = "black") +
+      geom_errorbar(aes(ymin = avg_density - se_density, ymax = avg_density + se_density), width = 0) +
+      labs(x = "Año", y = "Densidad promedio (ind/m cúadrado)", col = "", fill = "") +
+      ylim(0, 2) +
+      theme_bw()
+  }
+
+})
+plotOutput("density_plot")
+
+```
+
+### Tendencias de biomasa
+
+```{r}
+output$biomass_plot <- renderPlot({
+  region_data <- data %>%
+    filter(region == input$regional_region)
+
+  if (input$show_commercial) {
+    region_data <- region_data %>%
+         group_by(year, reef, commercial, depth2, transect) %>% 
+         summarise(biomass = sum(biomass)) %>% 
+      group_by(year, commercial) %>%
+      summarize(avg_biomass = mean(biomass, na.rm = TRUE), 
+                se_biomass = sd(biomass, na.rm = TRUE)/sqrt(n()))
+    ggplot(region_data, aes(x = year, y = avg_biomass, color = commercial, fill = commercial)) +
+      geom_point() +
+          geom_smooth() +
+      geom_errorbar(aes(ymin = avg_biomass - se_biomass, ymax = avg_biomass + se_biomass), width = 0) +
+      labs(x = "Año", y = "Biomasa promedio (ton/ha)", col = "", fill = "") +
+      scale_color_manual(values = c("Commercial" = "blue", "No commercial" = "red")) +
+      scale_fill_manual(values = c("Commercial" = "blue", "No commercial" = "red")) +
+      ylim(0, 5.5) +
+      theme_bw() +
+         theme(legend.position = "bottom")
+  } else {
+    region_data <- region_data %>%
+         group_by(year, reef, depth2, transect) %>% 
+         summarise(biomass = sum(biomass)) %>% 
+      group_by(year) %>%
+      summarize(avg_biomass = mean(biomass, na.rm = TRUE), 
+                se_biomass = sd(biomass, na.rm = TRUE)/sqrt(n()))
+    ggplot(region_data, aes(x = year, y = avg_biomass)) +
+     geom_point(color = "black") +
+         geom_smooth(color = "black", fill = "black") +
+      geom_errorbar(aes(ymin = avg_biomass - se_biomass, ymax = avg_biomass + se_biomass), width = 0) +
+      labs(x = "Año", y = "Biomasa promedio (ton/ha)", col = "", fill = "") +
+         ylim(0, 5.5) +
+      theme_bw()
+  }
+
+})
+plotOutput("biomass_plot")
+
+```
+
+### Tendencias de talla
+
+```{r}
+output$size_plot <- renderPlot({
+  region_data <- data %>%
+    filter(region == input$regional_region)
+
+  if (input$show_commercial) {
+    region_data <- region_data %>%
+         group_by(year, reef, commercial, depth2, transect) %>% 
+         summarise(size = mean(size)) %>% 
+      group_by(year, commercial) %>%
+      summarize(avg_size = mean(size, na.rm = TRUE), 
+                se_size = sd(size, na.rm = TRUE)/sqrt(n()))
+    ggplot(region_data, aes(x = year, y = avg_size, color = commercial, fill = commercial)) +
+      geom_point() +
+         geom_smooth() +
+      geom_errorbar(aes(ymin = avg_size - se_size, ymax = avg_size + se_size), width = 0) +
+      labs(x = "Año", y = "Talla promedio (cm)", col = "", fill = "") +
+      scale_color_manual(values = c("Commercial" = "blue", "No commercial" = "red")) +
+      scale_fill_manual(values = c("Commercial" = "blue", "No commercial" = "red")) +
+      ylim(15, 35) +
+      theme_bw() +
+         theme(legend.position = "bottom")
+  } else {
+    region_data <- region_data %>%
+         group_by(year, reef, depth2, transect) %>% 
+         summarise(size = mean(size)) %>% 
+      group_by(year) %>%
+      summarize(avg_size = mean(size, na.rm = TRUE), 
+                se_size = sd(size, na.rm = TRUE)/sqrt(n()))
+    ggplot(region_data, aes(x = year, y = avg_size)) +
+      geom_point(color = "black") +
+         geom_smooth(color = "black", fill = "black") +
+      geom_errorbar(aes(ymin = avg_size - se_size, ymax = avg_size + se_size), width = 0) +
+      labs(x = "Año", y = "Talla promedio (cm)", col = "", fill = "") +
+      ylim(15, 35) +
+      theme_bw()
+  }
+
+})
+plotOutput("size_plot")
+
+```
+
+Row {data-height=100}
+-----------------------------------------------------------------------
+### Tabla de especies
+
+```{r}
+output$summary_table <- renderDataTable({
+  summary_data <- data %>% 
+    filter(region == input$regional_region) %>%
+       filter(year > 2010) %>% 
+     group_by(year, reef, depth2, functional_name, max_size_tl, commercial, trophic_level_f, diet, transect, species) %>% 
+       summarise(size = mean(size), 
+                 biomass = sum(biomass), 
+                 density = sum(density)) %>% 
+    group_by(species, functional_name, max_size_tl, commercial, trophic_level_f, diet) %>%
+    summarize(frequency = n(),
+              avg_density = mean(density, na.rm = TRUE),
+              se_density = sd(density) / sqrt(n()),
+              avg_biomass = mean(biomass, na.rm = TRUE),
+              se_biomass = sd(biomass) / sqrt(n()),
+              avg_size = mean(size, na.rm = TRUE),
+              se_size = sd(size) / sqrt(n()),
+              commercial = first(commercial))%>%
+               filter(frequency > 10) %>% 
+               mutate(
+                    density_se = round(avg_density, 4),
+                    density_se_str = paste0("(", round(se_density, 4), ")"),
+                    size_se = round(avg_size, 2),
+                    size_se_str = paste0("(", round(se_size, 2), ")"),
+                    biomass_se = round(avg_biomass, 4),
+                    biomass_se_str = paste0("(", round(se_biomass, 4), ")")
+               ) %>%
+               select(species, commercial, functional_name, max_size_tl, 
+                      trophic_level_f, diet, frequency, density_se, density_se_str, 
+                      size_se, size_se_str, biomass_se, biomass_se_str) 
+          
+          datatable(summary_data, options = list(pageLength = 10), caption = "*Pr. = Promedio, EE = Error Estandár",
+                    colnames = c("Especies", "Comerciál", "Grupo funcional", "Talla Maxima", "Nivel Trófico", "Dieta", "Frequencia", 
+                                 "Densidad Pr.", "Densidad EE", "Talla Pr.", "Talla EE", "Biomasa Pr.", "Biomasa EE"))
+
+})
+dataTableOutput("summary_table")
+
+```
+
+
+
+
+
+Tendencias de especies
+=======================================================================
+
+
+Sidebar {.sidebar}
+-----------------------------------------------------------------------
+
+### Species Trends
+
+```{r}
+selectInput("species_region", "Seleccionar Región:", choices = unique(data$region), selected = unique(data$region)[1])
+selectInput("selected_species", "Seleccionar Especie:", choices = sort(unique(data$species)))
+```
+
+Column {data-width=650}
+-----------------------------------------------------------------------
+
+### Tendencias en Densidad
+
+```{r}
+output$species_density_plot <- renderPlot({
+  species_data <- data %>%
+    filter(species == input$selected_species)
+
+  overall_data <- species_data %>%
+    group_by(year) %>%
+    summarize(avg_density = mean(density, na.rm = TRUE), 
+              se_density = sd(density, na.rm = TRUE)/sqrt(n()))
+  
+  ggplot(overall_data, aes(x = year, y = avg_density)) +
+    geom_point(color = "black") +
+    geom_smooth(color = "black", fill = "black") +
+    geom_errorbar(aes(ymin = avg_density - se_density, ymax = avg_density + se_density), width = 0) +
+    labs(title = "Average Density Over Time", x = "Year", y = "Average Density", col = "", fill = "") +
+    theme_bw()
+})
+plotOutput("species_density_plot")
+
+```
+
+### Tendenciad de biomasa
+
+```{r}
+output$species_biomass_plot <- renderPlot({
+  species_data <- data %>%
+    filter(species == input$selected_species)
+
+  overall_data <- species_data %>%
+    group_by(year) %>%
+    summarize(avg_biomass = mean(biomass, na.rm = TRUE), 
+              se_biomass = sd(biomass, na.rm = TRUE)/sqrt(n()))
+  
+  ggplot(overall_data, aes(x = year, y = avg_biomass)) +
+    geom_point(color = "black") +
+    geom_smooth(color = "black", fill = "black") +
+    geom_errorbar(aes(ymin = avg_biomass - se_biomass, ymax = avg_biomass + se_biomass), width = 0) +
+    labs(title = "Average Biomass Over Time", x = "Year", y = "Average Biomass", col = "", fill = "") +
+    theme_bw()
+})
+plotOutput("species_biomass_plot")
+
+```
+
+
+### Tendencias de talla
+
+```{r}
+output$species_size_plot <- renderPlot({
+  species_data <- data %>%
+    filter(species == input$selected_species)
+
+  overall_data <- species_data %>%
+    group_by(year) %>%
+    summarize(avg_size = mean(size, na.rm = TRUE), 
+              se_size = sd(size, na.rm = TRUE)/sqrt(n()))
+  
+  ggplot(overall_data, aes(x = year, y = avg_size)) +
+    geom_point(color = "black") +
+    geom_smooth(color = "black", fill = "black") +
+    geom_errorbar(aes(ymin = avg_size - se_size, ymax = avg_size + se_size), width = 0) +
+    labs(title = "Average Size Over Time", x = "Year", y = "Average Size", col = "", fill = "") +
+    theme_bw()
+})
+plotOutput("species_size_plot")
+
+```
+
+Column {data-width=650}
+-----------------------------------------------------------------------
+
+### Tabla de especies
+```{r}
+output$species_table <- renderDataTable({
+  species_data <- data %>%
+    filter(species == input$selected_species & region == input$species_region) %>%
+    group_by(year, reef, depth2, transect) %>%
+    summarize(density = sum(density),
+              biomass = sum(biomass),
+              size = mean(size)) %>%
+    ungroup() %>%
+    arrange(year)
+  
+  datatable(species_data, options = list(pageLength = 10), caption = "Datos de Especie Seleccionada")
+})
+dataTableOutput("species_table")
+
+```
+
